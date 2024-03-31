@@ -47,8 +47,13 @@ class Section:
 
         raise KeyError("Unknown Section member name %s", item)
 
-    def __setitem__(self, /):
-        raise AssertionError("Setting new items to section is not allowed.")
+    def __setitem__(self, key, value):
+        for v in self.variables:
+            if v.name == key:
+                v.value = value
+                return None
+
+        raise KeyError("No variable member with key: %s", key)
 
     def __getattribute__(self, name, /) -> Union[Variable, Section, str]:
         try:
@@ -139,9 +144,23 @@ def section(tokens: List[str], name: str) -> Section:
                 "Expected variable line with value, got %s", current_token
             )
 
-        this_section.variables.append(
-            Variable(name=token_split[0], value=token_split[1])
-        )
+        variable_name = token_split[0]
+        try:
+            # Try and check if the section variable is already
+            # Present. If so, make it a list and append the value
+            # to it.
+            current_var = this_section[variable_name]
+            if not isinstance(current_var, list):
+                # If it's not already a list, make it a list
+                this_section[variable_name] = [current_var]
+                this_section[variable_name].append(token_split[1])
+            else:
+                this_section[variable_name].append(token_split[1])
+        except KeyError:
+            this_section.variables.append(
+                Variable(name=variable_name, value=token_split[1])
+            )
+
         # Eat the next token
         current_token = eat(tokens)
 

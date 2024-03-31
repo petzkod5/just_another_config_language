@@ -48,6 +48,22 @@ def basic_config_text():
     """
 
 
+@pytest.fixture
+def config_w_list_text():
+    return """
+    section1
+    {
+        listname  1
+        listname  2
+        listname  3
+        listname  4
+        listname  5
+        listname  6
+        listname  7
+    }
+    """
+
+
 def test_basic_config(basic_config_text):
     result = parse(tokenize(basic_config_text))
 
@@ -85,3 +101,12 @@ def test_basic_config(basic_config_text):
 
     assert result.section2.ss1.ss2.s1ss2 == "v3"
     assert result.section2.ss1.ss2.s2ss2 == "v4"
+
+
+def test_config_with_list(config_w_list_text):
+    result = parse(tokenize(config_w_list_text))
+
+    assert isinstance(result.section1.listname, list)
+    assert len(result.section1.listname) == 7
+    for i in range(1, 7):
+        assert result.section1.listname[i - 1] == str(i)
