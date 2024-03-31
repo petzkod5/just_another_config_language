@@ -213,7 +213,13 @@ def parse(tokens: List[str]):
 
         if lookahead(tokens) == SECTION_START:
             eat(tokens)  # Eat the starting {
-            config.sections.append(section(tokens, current_token))
+            section_ = section(tokens, current_token)
+            if section_.name in [s.name for s in config.sections]:
+                raise SyntaxError(
+                    "Top-Level sections must be unique. Found multiple sections named: %s",
+                    section_.name,
+                )
+            config.sections.append(section_)
 
     return config
 

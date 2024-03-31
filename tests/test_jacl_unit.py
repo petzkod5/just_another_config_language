@@ -1,6 +1,6 @@
 import pytest
 from jacl import Config
-from jacl.main import parse, tokenize, Section, Variable
+from jacl.main import parse, tokenize, Section, Variable, SyntaxError
 
 
 @pytest.fixture
@@ -125,6 +125,55 @@ def config_with_inline_comments():
     """
 
 
+@pytest.fixture
+def config_with_only_comments():
+    return """
+    # This is a comment
+
+    ###
+
+
+    A Comment Block
+
+
+
+
+    ###
+
+
+    # Another Comment
+
+
+    ### A block
+
+    ###
+    """
+
+
+@pytest.fixture
+def config_with_multiple_toplevel_same_sections():
+    return """
+    section1
+    {
+        var1    1
+    }
+    section1
+    {
+        var1    2
+    }
+    """
+
+
+@pytest.fixture
+def config_missing_variable_value():
+    return """
+    section1
+    {
+        var1
+    }
+    """
+
+
 def test_basic_config(basic_config_text):
     result = parse(tokenize(basic_config_text))
 
@@ -201,6 +250,28 @@ def test_inline_comments(config_with_inline_comments):
             ),
         ]
     )
-    print(result)
-    print(expected)
     assert result == expected
+
+
+def test_empty_config():
+    result = parse(tokenize(""))
+    assert isinstance(result, Config)
+    assert result == Config()
+
+
+def test_config_only_comments(config_with_only_comments):
+    result = parse(tokenize(config_with_only_comments))
+    assert isinstance(result, Config)
+    assert result == Config()
+
+
+def test_multiple_toplevel_sections_same_name(
+    config_with_multiple_toplevel_same_sections,
+):
+    with pytest.raises(SyntaxError) as context:
+        parse(tokenize(config_with_multiple_toplevel_same_sections))
+
+
+def test_missing_variable_value(config_missing_variable_value):
+    with pytest.raises(SyntaxError) as context:
+        parse(tokenize(config_missing_variable_value))
