@@ -110,6 +110,21 @@ def config_w_multiline_comment():
     """
 
 
+@pytest.fixture
+def config_with_inline_comments():
+    return """
+    section1
+    {
+        variable1   1   # This is an inline comment
+
+        subsection # This is an inline comment for a subsection
+        {
+            variable2  2
+        }
+    }
+    """
+
+
 def test_basic_config(basic_config_text):
     result = parse(tokenize(basic_config_text))
 
@@ -168,3 +183,24 @@ def test_multiline_comments(config_w_multiline_comment):
     config.sections.append(section)
 
     assert result == config
+
+
+def test_inline_comments(config_with_inline_comments):
+    result = parse(tokenize(config_with_inline_comments))
+    expected = Config(
+        sections=[
+            Section(
+                name="section1",
+                variables=[Variable(name="variable1", value="1")],
+                subsections=[
+                    Section(
+                        name="subsection",
+                        variables=[Variable(name="variable2", value="2")],
+                    )
+                ],
+            ),
+        ]
+    )
+    print(result)
+    print(expected)
+    assert result == expected

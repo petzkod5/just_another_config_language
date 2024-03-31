@@ -222,6 +222,12 @@ def tokenize(text: str):
     lines = []
     for line in text.splitlines():
         line = line.strip()
+        # Cleanse the line of any inline comments
+        if (
+            not line.startswith(SINGLE_LINE_COMMENT)
+            and len(line.split("#", maxsplit=1)) == 2
+        ):
+            line = line.split("#", maxsplit=1)[0].rstrip()
         if line:
             lines.append(line)
 
