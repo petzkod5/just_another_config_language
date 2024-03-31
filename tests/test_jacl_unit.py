@@ -1,6 +1,6 @@
 import pytest
 from jacl import Config
-from jacl.main import parse, tokenize
+from jacl.main import parse, tokenize, Section, Variable
 
 
 @pytest.fixture
@@ -64,6 +64,52 @@ def config_w_list_text():
     """
 
 
+@pytest.fixture
+def config_w_multiline_comment():
+    return """
+    ###
+
+
+
+
+    This
+    is a multiline
+    comment block
+
+
+
+
+
+
+
+
+
+
+    ###
+    
+
+    # This is a single line comment
+    # Another Single Line Comment
+
+    section1
+    {
+        # This is a comment inside a section
+        ###
+            This is a comment
+
+            block inside a section
+
+
+
+
+            This should be valid
+
+        ###
+        variable1  var1
+    }
+    """
+
+
 def test_basic_config(basic_config_text):
     result = parse(tokenize(basic_config_text))
 
@@ -110,3 +156,15 @@ def test_config_with_list(config_w_list_text):
     assert len(result.section1.listname) == 7
     for i in range(1, 7):
         assert result.section1.listname[i - 1] == str(i)
+
+
+def test_multiline_comments(config_w_multiline_comment):
+    result = parse(tokenize(config_w_multiline_comment))
+
+    section = Section(
+        name="section1", variables=[Variable(name="variable1", value="var1")]
+    )
+    config = Config()
+    config.sections.append(section)
+
+    assert result == config

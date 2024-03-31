@@ -9,6 +9,7 @@ EOF = "EOF"
 SECTION_START = "{"
 SECTION_END = "}"
 SINGLE_LINE_COMMENT = "#"
+MULTILINE_COMMENT = "###"
 
 log = logging.getLogger(__name__)
 handler = logging.StreamHandler()
@@ -77,6 +78,9 @@ class Section:
 class Config:
     sections: List[Section] = field(default_factory=list)
 
+    def __len__(self):
+        return len(self.sections)
+
     def __getitem__(self, item) -> Section:
         for s in self.sections:
             if s.name == item:
@@ -127,8 +131,13 @@ def section(tokens: List[str], name: str) -> Section:
 
     current_token = eat(tokens)
     while current_token != SECTION_END:
-        if current_token == SINGLE_LINE_COMMENT:
-            eat(tokens)  # Eat the token and continue
+        if current_token.startswith(MULTILINE_COMMENT):
+            eat_until(tokens, MULTILINE_COMMENT)
+            current_token = eat(tokens)
+            continue
+
+        if current_token.startswith(SINGLE_LINE_COMMENT):
+            current_token = eat(tokens)  # Proceed to the next token and continue
             continue
 
         if lookahead(tokens) == SECTION_START:
@@ -174,6 +183,12 @@ def eat(tokens: List[str]):
     return t
 
 
+def eat_until(tokens: List[str], stopper: str):
+    t = tokens.pop(0)
+    while not t.startswith(stopper):
+        t = tokens.pop(0)
+
+
 def lookahead(tokens: List[str]):
     try:
         log.debug("NextT: %s", tokens[0])
@@ -189,8 +204,11 @@ def parse(tokens: List[str]):
     while len(tokens) > 0:
         current_token = eat(tokens)
 
-        if current_token == SINGLE_LINE_COMMENT:
-            eat(tokens)
+        if current_token.startswith(MULTILINE_COMMENT):
+            eat_until(tokens, MULTILINE_COMMENT)
+            continue
+
+        if current_token.startswith(SINGLE_LINE_COMMENT):
             continue
 
         if lookahead(tokens) == SECTION_START:
@@ -201,7 +219,12 @@ def parse(tokens: List[str]):
 
 
 def tokenize(text: str):
-    lines = [line.strip() for line in text.splitlines() if line]
+    lines = []
+    for line in text.splitlines():
+        line = line.strip()
+        if line:
+            lines.append(line)
+
     return lines
 
 
