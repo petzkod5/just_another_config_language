@@ -1,14 +1,15 @@
 from __future__ import annotations
-from pprint import pprint
-from enum import Enum, auto
-import sys
-import os
-from pathlib import Path
+
 import logging
 import logging.config
+import os
+import sys
+from enum import auto, Enum
+from pathlib import Path
+from pprint import pprint
 from typing import Any, Union
 
-from attrs import define, field, asdict
+from attrs import asdict, define, field
 
 __all__ = ["loads"]
 
@@ -89,10 +90,28 @@ class Section:
 
         raise KeyError(f"Unknown section value {key}")
 
+    def __getattribute__(self, name: str, /) -> Any:
+        try:
+            return super().__getattribute__(name)
+        except AttributeError:
+            return self.__getitem__(name)
+
 
 @define
 class JACL:
-    sections: list[Section] = field(factory=list)
+    _sections: list[Section] = field(factory=list)
+
+    def add(self, section: Section) -> None:
+        """Add a new section to JACL Configuration Object"""
+        matching_sections = [s for s in self._sections if s.name == section.name]
+        assert len(matching_sections) <= 1  # This should never be > 1
+
+        if len(matching_sections) == 1:
+            raise NameError(
+                f"Section: {section.name} already exists! Top-Level JACL Sections may not occur twice"
+            )
+        else:
+            self._sections.append(section)
 
     def __str__(self) -> str:
         return str(asdict(self))
@@ -101,11 +120,28 @@ class JACL:
         return self.__str__()
 
     def __getitem__(self, key: str) -> Section:
-        for s in self.sections:
+        for s in self._sections:
             if key == s.name:
                 return s
 
         raise KeyError(f"Unknown Section Name: {key}")
+
+    def __setitem__(self, key: str, value: Section) -> None:
+        if not isinstance(value, Section):
+            raise ValueError(f"Can not append value of type: {type(value)} to JACL")
+
+        if key != value.name:
+            raise NameError(
+                f"Section Key, must match the name of the section. {key} != {value.name}"
+            )
+
+        self.add(value)
+
+    def __getattribute__(self, name: str, /) -> Any:
+        try:
+            return super().__getattribute__(name)
+        except AttributeError:
+            return self.__getitem__(name)
 
 
 class TokenType(Enum):
@@ -125,7 +161,7 @@ class TokenType(Enum):
         elif isinstance(view, float):
             return TokenType.FLOAT
 
-        for kw_name, kw_type in reserved_words:
+        for kw_name, kw_type in keywords:
             if view.lower() == kw_name.lower():
                 return kw_type
 
@@ -149,7 +185,7 @@ class Token:
             self.value = word
 
 
-reserved_words = [
+keywords = [
     ("true", TokenType.BOOL_TRUE),
     ("false", TokenType.BOOL_FALSE),
     ("none", TokenType.NONE),
@@ -332,7 +368,7 @@ def parse(tokens: list[Token]) -> JACL:
                 # Current Token is a Section Starter
                 tokens.pop(0)  # Eat the curly Brace
                 section = _parse_section(tokens, Section(token.value))
-                jacl.sections.append(section)
+                jacl.add(section)
         else:
             raise SyntaxError(f"Unknown Token when parsing: {token}")
 
@@ -353,4 +389,4 @@ if __name__ == "__main__":
     application_settings = config["application.settings"]
     print(application_settings)
     pprint(asdict(config))
-    print(config["project.dependencies"]["libraries"])
+    pprint(application_settings.config_location)
