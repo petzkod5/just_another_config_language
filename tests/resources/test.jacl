@@ -1,0 +1,130 @@
+# JACL (Just Another Config Language)
+# Galactic Explorer Configuration with Repeat Variables
+#
+
+application.settings
+{
+    config_location  ~/.config/galactic_explorer.jacl
+    use_defaults     false
+    name             "Galactic Explorer"
+    version          4.5
+    description      "Embark on virtual journeys through the cosmos with multi-value settings!"
+    authors          "Alex Rutherford"
+    authors          "Jamie Lannister"
+    authors          "Samwell Tarly"
+}
+
+application.features
+{
+    realtime_rendering
+    {
+        enabled     true
+        quality     ultra
+    }
+
+    database
+    {
+        type         embedded
+        encryption   true
+        path         ~/.config/galactic_explorer/database.ge
+    }
+
+    telemetry
+    {
+        enabled     false
+        endpoint    https://telemetry.example.com
+    }
+}
+
+user.preferences
+{
+    theme
+    {
+        name         dark_space
+        custom_colors
+        {
+            background   "#000022"
+            text         "#EFEFEF"
+            accent       "#482ff7"
+            accent       "#34eb4f"
+        }
+    }
+
+    notifications
+    {
+        enabled     true
+        frequency   5m
+        types       updates
+        types       news
+        types       events
+        types       alerts
+    }
+
+    exploration_mode
+    {
+        default     auto
+        auto_discover   true
+        highlight_interesting  true
+    }
+}
+
+project.dependencies
+{
+    libraries
+    {
+        name        SDL2
+        version     2.0.14
+    }
+    libraries
+    {
+        name        OpenGL
+        version     >=4.6
+    }
+    libraries
+    {
+        name        Vulkan
+        version     >=1.2
+    }
+
+    assets
+    {
+        type         compressed
+        location     https://assets.example.com/galactic_explorer
+    }
+    assets
+    {
+        type         uncompressed
+        location     https://mirror.example.com/galactic_explorer
+    }
+}
+
+extra.features
+{
+    mod_support
+    {
+        enabled     true
+        directory   ~/.config/galactic_explorer/mods
+    }
+
+    community_hub
+    {
+        enabled     true
+        url         https://community.example.com
+    }
+}
+
+tags
+{
+    tag     exploration
+    tag     simulation
+    tag     space
+    tag     "virtual reality"
+}
+
+###
+# This configuration now demonstrates variables with the same name occurring
+# multiple times within the same section or subsection. When parsed, these
+# would typically be combined into an array or list, allowing for more dynamic
+# configurations.
+###
+

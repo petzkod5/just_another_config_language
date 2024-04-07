@@ -1,247 +1,356 @@
 from __future__ import annotations
-
-import logging
-from dataclasses import dataclass, field
+from pprint import pprint
+from enum import Enum, auto
+import sys
+import os
 from pathlib import Path
-from typing import Any, List, Union
+import logging
+import logging.config
+from typing import Any, Union
 
-EOF = "EOF"
-SECTION_START = "{"
-SECTION_END = "}"
-SINGLE_LINE_COMMENT = "#"
-MULTILINE_COMMENT = "###"
+from attrs import define, field, asdict
 
-log = logging.getLogger(__name__)
-handler = logging.StreamHandler()
-fmt = logging.Formatter("%(levelname)-7s - %(message)s")
-handler.setFormatter(fmt)
-log.addHandler(handler)
-log.setLevel(logging.WARNING)
-log.debug("Started.")
+__all__ = ["loads"]
+
+log = logging.getLogger("jacl")
+logging.config.dictConfig(
+    {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {"simple": {"format": "%(levelname)s: %(message)s"}},
+        "handlers": {
+            "stdout": {
+                "class": "logging.StreamHandler",
+                "formatter": "simple",
+                "stream": "ext://sys.stdout",
+            }
+        },
+        "loggers": {"root": {"level": "DEBUG", "handlers": ["stdout"]}},
+    }
+)
 
 
-class SyntaxError(Exception):
-    """Config Syntax Error"""
-
-
-@dataclass
+@define
 class Variable:
     name: str
     value: Any
 
 
-@dataclass
+@define
 class Section:
     name: str
-    variables: List[Variable] = field(default_factory=list)
+    variables: list[Variable] = field(factory=list)
+    subsections: list[Section] = field(factory=list)
 
-    subsections: List[Section] = field(default_factory=list)
+    def add(self, value: Variable | Section):
+        """Add a variable or section to current section"""
+        if isinstance(value, Variable):
+            matching_variables = [v for v in self.variables if v.name == value.name]
+            assert len(matching_variables) <= 1  # This should never be more than 1
 
-    def __getitem__(self, item) -> Union[Variable, Section]:
+            if len(matching_variables) == 1:
+                matching_variable_idx = self.variables.index(matching_variables[0])
+                v = self.variables.pop(matching_variable_idx)
+                if isinstance(v.value, list):
+                    v.value.append(value.value)
+                    self.variables.append(v)
+                else:
+                    v.value = [v.value]
+                    v.value.append(value.value)
+                    self.variables.append(v)
+
+            else:
+                self.variables.append(value)
+        elif isinstance(value, Section):
+            matching_subsections = [s for s in self.subsections if s.name == value.name]
+            assert len(matching_subsections) <= 1  # This should never be more than 1
+
+            if len(matching_subsections) == 1:
+                matching_section_idx = self.subsections.index(matching_subsections[0])
+                s = self.subsections.pop(matching_section_idx)
+                for var in value.variables:
+                    s.add(var)
+                for sec in value.subsections:
+                    s.add(sec)
+                self.subsections.append(s)
+            else:
+                self.subsections.append(value)
+        else:
+            raise ValueError(f"Can not append item of type {type(value)} to section.")
+
+    def __getitem__(self, key: str) -> Section | Variable:
+        for s in self.subsections:
+            if key == s.name:
+                return s
+
         for v in self.variables:
-            if v.name == item:
+            if key == v.name:
                 return v.value
 
-        for s in self.subsections:
-            if s.name == item:
+        raise KeyError(f"Unknown section value {key}")
+
+
+@define
+class JACL:
+    sections: list[Section] = field(factory=list)
+
+    def __str__(self) -> str:
+        return str(asdict(self))
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+    def __getitem__(self, key: str) -> Section:
+        for s in self.sections:
+            if key == s.name:
                 return s
 
-        raise KeyError("Unknown Section member name %s", item)
-
-    def __setitem__(self, key, value):
-        for v in self.variables:
-            if v.name == key:
-                v.value = value
-                return None
-
-        raise KeyError("No variable member with key: %s", key)
-
-    def __getattribute__(self, name, /) -> Union[Variable, Section, str]:
-        try:
-            return super().__getattribute__(name)
-        except AttributeError:
-            return self.__getitem__(name)
-
-    def todict(self) -> dict:
-        """Return Dict Representation of the Section"""
-        d = {}
-        for v in self.variables:
-            d[v.name] = v.value
-
-        for s in self.subsections:
-            d[s.name] = s.todict()
-
-        return d
+        raise KeyError(f"Unknown Section Name: {key}")
 
 
-@dataclass
-class Config:
-    sections: List[Section] = field(default_factory=list)
-
-    def __len__(self):
-        return len(self.sections)
-
-    def __getitem__(self, item) -> Section:
-        for s in self.sections:
-            if s.name == item:
-                return s
-        else:
-            raise KeyError("Unknown section name: %s", item)
-
-    def __setitem__(self, /):
-        raise AssertionError("Setting new items to config is not allowed.")
-
-    def __getattribute__(self, name: str, /) -> Section:
-        try:
-            return super().__getattribute__(name)
-        except AttributeError:
-            return self.__getitem__(name)
-
-    def todict(self) -> dict:
-        """Return Dictionary Representation of the config"""
-        d = {}
-        for s in self.sections:
-            d[s.name] = s.todict()
-
-        return d
+class TokenType(Enum):
+    OPEN_CURLY = auto()
+    CLOSE_CURLY = auto()
+    WORD = auto()
+    BOOL_TRUE = auto()
+    BOOL_FALSE = auto()
+    INTEGER = auto()
+    FLOAT = auto()
+    NONE = auto()
 
     @staticmethod
-    def from_file(file: Union[str, Path]) -> Config:
-        if not isinstance(file, Path):
-            file = Path(file)
+    def get_token_type(view: str | int | float) -> TokenType:
+        if isinstance(view, int):
+            return TokenType.INTEGER
+        elif isinstance(view, float):
+            return TokenType.FLOAT
 
-        if not file.exists() or not file.is_file():
-            raise OSError(
-                "Error opening file %s - check to make sure it exists and is a file",
-                str(file),
+        for kw_name, kw_type in reserved_words:
+            if view.lower() == kw_name.lower():
+                return kw_type
+
+        return TokenType.WORD
+
+
+@define
+class Token:
+    type: TokenType = field(default=None)
+    value: Any = field(default=None)
+
+    def determine_value(self, word: str | int | float) -> None:
+        """Determine value and set self.value to determined value or else just the word text"""
+        if self.type == TokenType.BOOL_TRUE:
+            self.value = True
+        elif self.type == TokenType.BOOL_FALSE:
+            self.value = False
+        elif self.type == TokenType.NONE:
+            self.value = None
+        elif self.type in (TokenType.INTEGER, TokenType.FLOAT, TokenType.WORD):
+            self.value = word
+
+
+reserved_words = [
+    ("true", TokenType.BOOL_TRUE),
+    ("false", TokenType.BOOL_FALSE),
+    ("none", TokenType.NONE),
+]
+
+
+class TextView:
+    def __init__(self, txt: str) -> None:
+        self._txt: str = txt
+
+    def __eq__(self, value: object, /) -> bool:
+        if not isinstance(value, (str, TextView)):
+            return False
+
+        if isinstance(value, str):
+            return self._txt == value
+        else:
+            return self._txt == value._txt
+
+    def __str__(self):
+        return self._txt
+
+    def __len__(self):
+        return len(self._txt)
+
+    def triml(self, n: int = 1) -> str:
+        """Trim n chars from the left most(top-most) part of the text and return"""
+        if n > len(self):
+            raise OverflowError(
+                f"Not enough characters to read. Tried to read {n} chars, current length: {len(self)}"
+            )
+        chars = self._txt[0:n]
+        self._txt = self._txt[n:]
+        return chars
+
+    def checkl(self, n: int = 1) -> str:
+        """Check n chars from the left most part of the text and return"""
+        if n > len(self):
+            raise OverflowError(
+                f"Not enough characters to read. Tried to read {n} chars, current length: {len(self)}"
             )
 
-        return parse(tokenize(file.read_text()))
+        return self._txt[0:n]
+
+    @staticmethod
+    def isalnum(s: str) -> bool:
+        o = ord(s)
+        if 32 < o < 127:
+            return True
+
+        return False
 
 
-def normalize_section_name(name: str) -> str:
-    name = name.replace(" ", "_")
-    name = name.replace(".", "_")
-    return name
+def lex(view: TextView) -> list[Token]:
+    tokens = []
 
+    while len(view) > 0:
+        token = Token()
+        char: str = view.triml()
+        if char == '"':
+            # String Literals
+            word = ""
+            try:
+                while view.checkl() != '"':
+                    word += view.triml()
+            except OverflowError as e:
+                raise SyntaxError("Unterminated String Literal indicator '" "'") from e
+            view.triml()  # Trim the trailing "
+            token.type = TokenType.WORD
+            token.value = word
+            tokens.append(token)
 
-def section(tokens: List[str], name: str) -> Section:
-    this_section = Section(normalize_section_name(name))
-    log.debug("Working on section: %s", name)
+        elif char == "'":
+            # String Literals
+            word = ""
+            try:
+                while view.checkl() != "'":
+                    word += view.triml()
+            except OverflowError as e:
+                raise SyntaxError("Unterminated String Literal indicator '" "'") from e
+            view.triml()  # Trim the trailing "
+            token.type = TokenType.WORD
+            token.value = word
+            tokens.append(token)
 
-    current_token = eat(tokens)
-    while current_token != SECTION_END:
-        if current_token.startswith(MULTILINE_COMMENT):
-            eat_until(tokens, MULTILINE_COMMENT)
-            current_token = eat(tokens)
-            continue
+        elif char == "{":
+            token.type = TokenType.OPEN_CURLY
+            tokens.append(token)
 
-        if current_token.startswith(SINGLE_LINE_COMMENT):
-            current_token = eat(tokens)  # Proceed to the next token and continue
-            continue
+        elif char == "}":
+            token.type = TokenType.CLOSE_CURLY
+            tokens.append(token)
 
-        if lookahead(tokens) == SECTION_START:
-            eat(tokens)  # Eat the section start
-            subsection = section(tokens, current_token)
-            this_section.subsections.append(subsection)
-            current_token = eat(tokens)
-            continue
+        elif char == "#":
+            # Comment Signifiers
+            next_two_chars = view.checkl(2)
+            # Block Comments
+            if next_two_chars == "##":
+                view.triml(2)  # Trim the remaining two ##
+                try:
+                    while view.checkl(3) != "###":
+                        view.triml()
+                except OverflowError as e:
+                    raise SyntaxError("No closing comment block found") from e
 
-        token_split = current_token.split(maxsplit=1)
-        if len(token_split) != 2:
-            raise SyntaxError(
-                "Expected variable line with value, got %s", current_token
-            )
+                view.triml(3)  # Trim the closing ###
 
-        variable_name = token_split[0]
-        try:
-            # Try and check if the section variable is already
-            # Present. If so, make it a list and append the value
-            # to it.
-            current_var = this_section[variable_name]
-            if not isinstance(current_var, list):
-                # If it's not already a list, make it a list
-                this_section[variable_name] = [current_var]
-                this_section[variable_name].append(token_split[1])
+            # Single Line Comments
             else:
-                this_section[variable_name].append(token_split[1])
-        except KeyError:
-            this_section.variables.append(
-                Variable(name=variable_name, value=token_split[1])
-            )
+                try:
+                    while view.checkl() != "\n":
+                        view.triml()
+                except OverflowError as e:
+                    raise SyntaxError(
+                        "Unknown error occurred while processing comment line. Expected newline"
+                    ) from e
 
-        # Eat the next token
-        current_token = eat(tokens)
+        elif TextView.isalnum(char):
+            word = ""
+            word += char
+            char = view.triml()
+            while len(view) > 0 and TextView.isalnum(char):
+                word += char
+                char = view.triml()
 
-    log.debug("Returning from Section: %s", name)
-    return this_section
+            # Check if the word is any numerics
+            try:
+                word = int(word)
+            except ValueError:
+                try:
+                    word = float(word)
+                except ValueError:
+                    pass
 
+            token.type = TokenType.get_token_type(word)
+            token.determine_value(word)
+            tokens.append(token)
 
-def eat(tokens: List[str]):
-    t = tokens.pop(0)
-    log.debug("Eat: %s", t)
-    return t
-
-
-def eat_until(tokens: List[str], stopper: str):
-    t = tokens.pop(0)
-    while not t.startswith(stopper):
-        t = tokens.pop(0)
-
-
-def lookahead(tokens: List[str]):
-    try:
-        log.debug("NextT: %s", tokens[0])
-        return tokens[0]
-    except IndexError:
-        return None
+    return tokens
 
 
-def parse(tokens: List[str]):
-    log.debug("Parsing Tokens; %s", tokens)
-    config = Config()
+def _parse_section(tokens, section: Section) -> Section:
+    while len(tokens) > 0:
+        token = tokens.pop(0)
+        if token.type == TokenType.WORD:
+            next_token = tokens[0]
+            if next_token.type == TokenType.OPEN_CURLY:
+                # Current Token is subsection Starter
+                subsection = _parse_section(tokens, Section(token.value))
+                section.add(subsection)
+
+            elif next_token.type in (
+                TokenType.WORD,
+                TokenType.FLOAT,
+                TokenType.INTEGER,
+                TokenType.BOOL_FALSE,
+                TokenType.BOOL_TRUE,
+            ):
+                # Current Token is a Variable Name
+                section.add(Variable(name=token.value, value=next_token.value))
+                tokens.pop(0)  # Eat the next token
+            else:
+                raise SyntaxError(
+                    f"Unknown token when parsing section: {section.name} - Token: {token}"
+                )
+        elif token.type == TokenType.CLOSE_CURLY:
+            break  # Closing Section
+
+    return section
+
+
+def parse(tokens: list[Token]) -> JACL:
+    jacl = JACL()
 
     while len(tokens) > 0:
-        current_token = eat(tokens)
+        token = tokens.pop(0)
+        if token.type == TokenType.WORD:
+            next_token = tokens[0]
+            if next_token.type == TokenType.OPEN_CURLY:
+                # Current Token is a Section Starter
+                tokens.pop(0)  # Eat the curly Brace
+                section = _parse_section(tokens, Section(token.value))
+                jacl.sections.append(section)
+        else:
+            raise SyntaxError(f"Unknown Token when parsing: {token}")
 
-        if current_token.startswith(MULTILINE_COMMENT):
-            eat_until(tokens, MULTILINE_COMMENT)
-            continue
-
-        if current_token.startswith(SINGLE_LINE_COMMENT):
-            continue
-
-        if lookahead(tokens) == SECTION_START:
-            eat(tokens)  # Eat the starting {
-            section_ = section(tokens, current_token)
-            if section_.name in [s.name for s in config.sections]:
-                raise SyntaxError(
-                    "Top-Level sections must be unique. Found multiple sections named: %s",
-                    section_.name,
-                )
-            config.sections.append(section_)
-
-    return config
+    return jacl
 
 
-def tokenize(text: str):
-    lines = []
-    for line in text.splitlines():
-        line = line.strip()
-        # Cleanse the line of any inline comments
-        if (
-            not line.startswith(SINGLE_LINE_COMMENT)
-            and len(line.split("#", maxsplit=1)) == 2
-        ):
-            line = line.split("#", maxsplit=1)[0].rstrip()
-        if line:
-            lines.append(line)
+def loads(path: Union[os.PathLike, str]):
+    if not isinstance(path, Path):
+        path = Path(path)
+    tokens = lex(TextView(path.read_text()))
+    jacl = parse(tokens)
 
-    return lines
+    return jacl
 
 
 if __name__ == "__main__":
-    config = Config.from_file("./testconfig.p")
-    from pprint import pprint
-
-    pprint(config)
+    config = loads(sys.argv[1])
+    application_settings = config["application.settings"]
+    print(application_settings)
+    pprint(asdict(config))
+    print(config["project.dependencies"]["libraries"])

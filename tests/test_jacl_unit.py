@@ -174,6 +174,24 @@ def config_missing_variable_value():
     """
 
 
+@pytest.fixture
+def config_multiple_subsections_same_name():
+    return """
+    section1
+    {
+        variable  1
+        subsection 
+        {
+            v   1
+        }
+        subsection 
+        {
+            v   3
+        }
+    }
+    """
+
+
 def test_basic_config(basic_config_text):
     result = parse(tokenize(basic_config_text))
 
@@ -275,3 +293,21 @@ def test_multiple_toplevel_sections_same_name(
 def test_missing_variable_value(config_missing_variable_value):
     with pytest.raises(SyntaxError) as context:
         parse(tokenize(config_missing_variable_value))
+
+
+def test_multiple_same_subsections(config_multiple_subsections_same_name):
+    result = parse(tokenize(config_multiple_subsections_same_name))
+    expected = Config(
+        sections=[
+            Section(
+                name="section1",
+                variables=[Variable("variable", "1")],
+                subsections=[
+                    Section("subsection", variables=[Variable("v", ["1", "2"])])
+                ],
+            )
+        ]
+    )
+    print(result)
+    print(expected)
+    assert result == expected
