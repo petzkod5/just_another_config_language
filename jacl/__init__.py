@@ -1,1 +1,1 @@
-from .main import Config  # noqa: F401
+from .main import *

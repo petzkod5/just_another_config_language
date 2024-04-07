@@ -233,13 +233,14 @@ class TextView:
     @staticmethod
     def isalnum(s: str) -> bool:
         o = ord(s)
-        if 32 < o < 127:
+        if 32 < o < 123:
             return True
 
         return False
 
 
 def lex(view: TextView) -> list[Token]:
+    assert type(view) == TextView
     tokens = []
 
     while len(view) > 0:
@@ -306,10 +307,9 @@ def lex(view: TextView) -> list[Token]:
         elif TextView.isalnum(char):
             word = ""
             word += char
-            char = view.triml()
-            while len(view) > 0 and TextView.isalnum(char):
-                word += char
+            while len(view) > 0 and TextView.isalnum(view.checkl()):
                 char = view.triml()
+                word += char
 
             # Check if the word is any numerics
             try:
