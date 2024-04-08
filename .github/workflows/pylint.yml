@@ -17,9 +17,8 @@ jobs:
     - name: ChartBoost Ruff-Action
       uses: chartboost/ruff-action@v1
       with:
-        args: --check .
-        fix_args: --fix .
-        config: pyproject.toml
+        args: 'format --config ./pyproject.toml'
+        src: './jacl'
     - name: Analysing the code with ruff
       uses: stefanzweifel/git-auto-commit-action@v5
       with:
